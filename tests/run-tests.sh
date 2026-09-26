@@ -24,16 +24,23 @@ fi
 OUTPUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hermes-theme-test.XXXXXX")"
 trap 'rm -rf "$OUTPUT_DIR"' EXIT
 
+# Native Windows Python cannot use git-bash /tmp paths; convert once (no-op elsewhere).
+OUTPUT_DIR_WIN="$OUTPUT_DIR"
+command -v cygpath >/dev/null 2>&1 && OUTPUT_DIR_WIN="$(cygpath -m "$OUTPUT_DIR")"
+
 python3 scripts/generate_theme.py \
   --image "$TEST_IMAGE" \
   --name test-theme \
-  --output-dir "$OUTPUT_DIR" >/dev/null
+  --output-dir "$OUTPUT_DIR_WIN" >/dev/null
 
 for candidate in "$OUTPUT_DIR"/test-theme-*; do
-  python3 -m py_compile "$candidate/inject.py" "$candidate/force_vars.py"
+  CANDIDATE_WIN="$candidate"
+  command -v cygpath >/dev/null 2>&1 && CANDIDATE_WIN="$(cygpath -m "$candidate")"
+  python3 -m py_compile "$CANDIDATE_WIN/inject.py" "$CANDIDATE_WIN/force_vars.py" "$CANDIDATE_WIN/launcher.py"
   bash -n "$candidate/launcher.sh"
   test -f "$candidate/plugin.js"
   test -f "$candidate/inject.css"
+  test -f "$candidate/launcher.py"
   test -f "$candidate/assets/bg.png"
   grep -q -- "--theme-background-seed" "$candidate/inject.css"
   grep -q -- "--ui-accent" "$candidate/inject.css"
@@ -52,7 +59,7 @@ done
 if python3 scripts/generate_theme.py \
   --image "$TEST_IMAGE" \
   --name Invalid_Name \
-  --output-dir "$OUTPUT_DIR" >/dev/null 2>&1; then
+  --output-dir "$OUTPUT_DIR_WIN" >/dev/null 2>&1; then
   echo "Invalid theme name was accepted" >&2
   exit 1
 fi

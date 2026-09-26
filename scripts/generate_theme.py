@@ -553,8 +553,9 @@ body, #root {{
   --dt-composer-ring: {accent} !important;
 }}
 
-/* Keep the real sidebar and message controls usable over the artwork. */
-[class~="sidebar-wrapper"] {{
+/* Keep the real sidebar and message controls usable over the artwork.
+   Substring match: Tailwind named groups render as "group/sidebar-wrapper". */
+[class*="sidebar-wrapper"] {{
   background: transparent !important;
 }}
 
@@ -574,7 +575,7 @@ button[type="submit"] {{
 }}
 
 footer .text-primary,
-[class~="status"] .text-primary {{
+[class*="status"] .text-primary {{
   color: {muted_foreground} !important;
 }}
 
@@ -873,6 +874,95 @@ except Exception as error:
 '''
 
 
+def generate_launcher_py() -> str:
+    """Generate a cross-platform launcher (Windows has no .sh association)."""
+    return '''#!/usr/bin/env python3
+"""Launch Hermes Desktop with a CDP port, then inject this theme."""
+import argparse
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+THEME_DIR = Path(__file__).resolve().parent
+
+
+def find_hermes_bin():
+    candidates = []
+    env_bin = os.environ.get("HERMES_BIN")
+    if env_bin:
+        candidates.append(Path(env_bin))
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "hermes" / "hermes-agent" / "apps" / "desktop" / "release" / "win-unpacked" / "Hermes.exe")
+    home = Path.home()
+    candidates.extend([
+        home / ".hermes" / "hermes-agent" / "apps" / "desktop" / "release" / "mac-arm64" / "Hermes.app" / "Contents" / "MacOS" / "Hermes",
+        home / ".hermes" / "hermes-agent" / "apps" / "desktop" / "release" / "mac-x64" / "Hermes.app" / "Contents" / "MacOS" / "Hermes",
+    ])
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def cdp_ready(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=int(os.environ.get("HERMES_DEBUG_PORT", "9222")))
+    parser.add_argument("--dry-run", action="store_true", help="print resolved paths and exit")
+    args = parser.parse_args()
+
+    inject_py = THEME_DIR / "inject.py"
+    css = THEME_DIR / "inject.css"
+    hermes_bin = find_hermes_bin()
+    python = os.environ.get("HERMES_PYTHON") or sys.executable
+    print(f"theme dir : {THEME_DIR}")
+    print(f"hermes bin: {hermes_bin or 'NOT FOUND (set HERMES_BIN)'}")
+    print(f"python    : {python}")
+    print(f"cdp port  : {args.port}")
+    if args.dry_run:
+        return
+    if not hermes_bin:
+        raise SystemExit("Hermes Desktop binary not found; set HERMES_BIN to its path.")
+    if cdp_ready(args.port):
+        print(f"CDP port {args.port} is already in use.")
+        print("If Hermes is already running with CDP, re-inject directly with:")
+        print(f'  python "{inject_py}" --port {args.port} --css "{css}"')
+        raise SystemExit(1)
+
+    log = open(THEME_DIR / "launcher.log", "w", encoding="utf-8")
+    subprocess.Popen([str(hermes_bin), f"--remote-debugging-port={args.port}"], stdout=log, stderr=subprocess.STDOUT)
+    print("Waiting for Hermes Desktop CDP (if this stalls, close any running Hermes instance first)...")
+    for _ in range(20):
+        time.sleep(1)
+        if cdp_ready(args.port):
+            break
+    else:
+        raise SystemExit(f"CDP did not become ready; see {THEME_DIR / 'launcher.log'}")
+
+    subprocess.run([python, str(inject_py), "--port", str(args.port), "--css", str(css)], check=False)
+    force_vars = THEME_DIR / "force_vars.py"
+    if force_vars.is_file():
+        subprocess.run([python, str(force_vars), "--port", str(args.port)], check=False)
+    print(f"[OK] Hermes Desktop launched with theme: {THEME_DIR.name}")
+    print(f"     Theme picker: Settings -> Theme -> {THEME_DIR.name}")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 def create_theme_candidate(
     base_name: str,
     mode: str,
@@ -888,7 +978,10 @@ def create_theme_candidate(
     if theme_dir.exists():
         if not overwrite:
             raise FileExistsError(f"theme already exists: {theme_dir} (use --overwrite to replace it)")
-        shutil.rmtree(theme_dir)
+        # On Windows a running Hermes (started by launcher) keeps launcher.log
+        # open; rmtree would die mid-delete. Keep locked leftovers, replace all else.
+        # onerror (3.11-compatible); onexc is 3.12+.
+        shutil.rmtree(theme_dir, onerror=lambda fn, p, e: print(f"keep locked file: {p} ({e})"))
     theme_dir.mkdir(parents=True, exist_ok=True)
     
     # Create assets directory and copy background image
@@ -902,23 +995,27 @@ def create_theme_candidate(
     description = f"Generated from reference image — {mode} variant"
     
     plugin_js = generate_plugin_js(theme_name, label, colors, description)
-    (theme_dir / 'plugin.js').write_text(plugin_js)
+    (theme_dir / 'plugin.js').write_text(plugin_js, encoding='utf-8')
     
     inject_css = generate_inject_css(theme_dir, colors, overlay_opacity)
-    (theme_dir / 'inject.css').write_text(inject_css)
+    (theme_dir / 'inject.css').write_text(inject_css, encoding='utf-8')
     
     launcher_sh = generate_launcher_sh(theme_name, theme_dir)
     launcher_path = theme_dir / 'launcher.sh'
-    launcher_path.write_text(launcher_sh)
+    launcher_path.write_text(launcher_sh, encoding='utf-8')
     launcher_path.chmod(0o755)
+
+    launcher_py_path = theme_dir / 'launcher.py'
+    launcher_py_path.write_text(generate_launcher_py(), encoding='utf-8')
+    launcher_py_path.chmod(0o755)
 
     force_vars = generate_force_vars_py(colors)
     force_vars_path = theme_dir / 'force_vars.py'
-    force_vars_path.write_text(force_vars)
+    force_vars_path.write_text(force_vars, encoding='utf-8')
     force_vars_path.chmod(0o755)
     
     inject_py = generate_inject_py()
-    (theme_dir / 'inject.py').write_text(inject_py)
+    (theme_dir / 'inject.py').write_text(inject_py, encoding='utf-8')
     
     return theme_dir
 

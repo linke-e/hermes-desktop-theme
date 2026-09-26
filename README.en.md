@@ -56,7 +56,7 @@ python3 scripts/generate_theme.py \
   --output-dir "$HOME/.hermes/desktop-plugins"
 ```
 
-The generator creates `my-theme-dark`, `my-theme-light`, and `my-theme-vivid`. Each candidate contains `plugin.js`, `inject.css`, `inject.py`, `force_vars.py`, `launcher.sh`, and a copy of the background image.
+The generator creates `my-theme-dark`, `my-theme-light`, and `my-theme-vivid`. Each candidate contains `plugin.js`, `inject.css`, `inject.py`, `force_vars.py`, `launcher.sh`, `launcher.py`, and a copy of the background image.
 
 To replace candidates from an earlier run, explicitly add `--overwrite`; do not use it on a shared directory.
 
@@ -72,13 +72,33 @@ Reload Hermes Desktop plugins if needed, then select `my-theme-dark` under `Sett
 
 ### 5. Launch and inject
 
+Windows (no `.sh` file association; `%LOCALAPPDATA%` is the default Hermes install location):
+
+```powershell
+& "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe" `
+  "$env:LOCALAPPDATA\hermes\desktop-plugins\my-theme-dark\launcher.py"
+```
+
+macOS / Linux:
+
 ```bash
 ~/.hermes/desktop-plugins/my-theme-dark/launcher.sh
 ```
 
+> Hermes Desktop holds a single-instance lock: a second process exits silently. Fully quit any running Hermes Desktop before launching, or CDP readiness times out. Launching Hermes normally (without the debug port) does not inject the background — use the launcher whenever you want the artwork.
+
 The launcher calls the Hermes binary directly, waits for loopback CDP readiness, then injects the CSS and applies the inline variable overrides. It does not use `open --args` or broad `pkill -9` commands.
 
 Override the binary or port when needed:
+
+```powershell
+$env:HERMES_BIN = "D:\path\to\Hermes.exe"   # adjust to your install path
+$env:HERMES_DEBUG_PORT = 9341
+& "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe" `
+  "$env:LOCALAPPDATA\hermes\desktop-plugins\my-theme-dark\launcher.py"
+```
+
+macOS / Linux:
 
 ```bash
 HERMES_BIN="/absolute/path/to/Hermes" \
@@ -115,7 +135,8 @@ Reload Hermes Desktop after removal to clear inline variables written by `force_
 - `inject.css`: three-layer `--theme-*`, `--ui-*`, and `--dt-*` variables plus artwork
 - `inject.py`: loopback CDP injection and removal
 - `force_vars.py`: inline `!important` variables after Settings applies a theme
-- `launcher.sh`: architecture-aware launch and readiness check
+- `launcher.sh`: macOS launcher with architecture-aware binary discovery
+- `launcher.py`: cross-platform launcher (locates `Hermes.exe` / `Hermes.app`, waits for CDP readiness, then injects)
 - `assets/bg.png`: copied background image
 
 ## Hard rules

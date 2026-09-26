@@ -51,10 +51,10 @@ cd hermes-desktop-theme
 python3 scripts/generate_theme.py \
   --image /absolute/path/to/reference.png \
   --name my-theme \
-  --output-dir "$HOME/.hermes/desktop-plugins"
-```
+  --output-dir "%LOCALAPPDATA%\hermes\desktop-plugins"
+  ```
 
-生成器会输出三个候选主题：`my-theme-dark`、`my-theme-light` 和 `my-theme-vivid`。每个候选目录包含 `plugin.js`、`inject.css`、`inject.py`、`force_vars.py`、`launcher.sh` 和背景图副本。
+  Windows CMD 写法；macOS / Linux 用 `--output-dir "$HOME/.hermes/desktop-plugins"`。生成器会输出三个候选主题：`my-theme-dark`、`my-theme-light` 和 `my-theme-vivid`。每个候选目录包含 `plugin.js`、`inject.css`、`inject.py`、`force_vars.py`、`launcher.sh`、`launcher.py` 和背景图副本。
 
 如果重新生成同名候选，需要明确添加 `--overwrite`；不要对共享目录使用这个参数。
 
@@ -70,13 +70,33 @@ python3 scripts/generate_theme.py \
 
 ### 5. 启动并注入背景
 
+Windows（系统没有 `.sh` 程序关联，使用跨平台启动器；`%LOCALAPPDATA%` 是 Hermes 的默认安装位置，按实际安装路径调整）：
+
+```powershell
+& "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe" `
+  "$env:LOCALAPPDATA\hermes\desktop-plugins\my-theme-dark\launcher.py"
+```
+
+macOS / Linux：
+
 ```bash
 ~/.hermes/desktop-plugins/my-theme-dark/launcher.sh
 ```
 
+> 注意：Hermes Desktop 有单实例锁（第二个进程会静默退出）。注入前先**完全退出**正在运行的 Hermes Desktop，再运行启动器；否则 CDP 等待 20 秒后失败。正常运行 Hermes（不带调试端口）时主题背景不会被注入，需要背景时始终通过启动器启动。
+
 启动器会直接调用 Hermes 二进制，等待本机 CDP 就绪，然后依次执行背景注入和变量强制覆盖。它不会使用 `open --args`，也不会用宽泛的 `pkill -9` 终止其他进程。
 
 如果 Hermes Desktop 不在默认路径，可以显式指定二进制和端口：
+
+```powershell
+$env:HERMES_BIN = "D:\path\to\Hermes.exe"   # 按实际安装路径调整
+$env:HERMES_DEBUG_PORT = 9341
+& "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe" `
+  "$env:LOCALAPPDATA\hermes\desktop-plugins\my-theme-dark\launcher.py"
+```
+
+macOS / Linux：
 
 ```bash
 HERMES_BIN="/absolute/path/to/Hermes" \
@@ -121,7 +141,8 @@ python3 ~/.hermes/desktop-plugins/my-theme-dark/inject.py \
 - `inject.css`：`--theme-*`、`--ui-*`、`--dt-*` 三层变量和背景层
 - `inject.py`：本机回环 CDP 注入与移除
 - `force_vars.py`：压过 Settings 主题选择的 inline `!important` 变量
-- `launcher.sh`：Apple Silicon/Intel 路径发现与启动验证
+- `launcher.sh`：macOS 启动器（Apple Silicon/Intel 路径发现与启动验证）
+- `launcher.py`：Windows / 跨平台启动器（自动定位 `Hermes.exe` / `Hermes.app`，等待 CDP 就绪后注入）
 - `assets/bg.png`：背景图副本
 
 ## 设计铁律
@@ -151,7 +172,8 @@ hermes-desktop-theme/
 │   ├── generate_theme.py
 │   ├── inject.py
 │   ├── force_vars.py
-│   └── launcher.sh
+│   ├── launcher.sh
+│   └── launcher.py
 ├── presets/
 └── LICENSE
 ```
