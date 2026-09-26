@@ -1,4 +1,4 @@
-# Hermes Desktop Theme
+# Hermes Desktop Theme（Support for Win）
 
 从一张参考图生成 Hermes Desktop 的完整主题：颜色主题、背景图、CDP 注入器、变量强制覆盖和安全启动器。
 
@@ -25,6 +25,11 @@
 ### 森林精灵主题
 
 ![森林精灵主题](docs/images/hermes-desktop-theme-showcase-04.png)
+
+### Windows 10 自定义主题
+
+![Win10](docs/images/0349fcab-6ea2-47c3-befe-5c03274e331a.png)
+
 
 这些展示截图由仓库维护者提供。截图中的背景、人物、角色或其他视觉素材不自动获得本项目 MIT 许可证；如果你要公开再分发或商用，请先确认相应的生成、肖像、版权和商标权利。
 
